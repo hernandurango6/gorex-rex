@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -34,8 +35,15 @@ func startTCPTestServer(t *testing.T) (addr string, stop func()) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
+	// Windows serves no unix sockets: its local endpoint is a pipe, and
+	// rex rejects unix listen paths there. The pipe's name is unique to
+	// this server so the test's two of them never collide.
+	listen := "unix://" + filepath.Join(dir, "sock")
+	if runtime.GOOS == "windows" {
+		listen = fmt.Sprintf("npipe:////./pipe/gorex-test-%d", port)
+	}
 	cmd := exec.Command("rex", "server", "run",
-		"--listen", "unix://"+filepath.Join(dir, "sock"),
+		"--listen", listen,
 		"--extra-listen", fmt.Sprintf("http://127.0.0.1:%d", port),
 		"--allow-anonymous",
 		"--state-dir", filepath.Join(dir, "state"),
@@ -48,9 +56,13 @@ func startTCPTestServer(t *testing.T) (addr string, stop func()) {
 		cmd.Process.Kill()
 		cmd.Wait()
 	}
+	// The server is ready when its TCP listener answers: on Windows the
+	// pipe is no file to stat, and the TCP endpoint is the one the test
+	// dials anyway.
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(filepath.Join(dir, "sock")); err == nil {
+		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond); err == nil {
+			c.Close()
 			return fmt.Sprintf("127.0.0.1:%d", port), stop
 		}
 		time.Sleep(100 * time.Millisecond)
