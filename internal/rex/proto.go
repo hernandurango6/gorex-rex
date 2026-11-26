@@ -167,8 +167,9 @@ func Dir() string {
 	return filepath.Join(base, "GoRex")
 }
 
-// SocketPath returns the Unix socket the server listens on: the one
-// REX_SOCKET names, or Rex's default for the user.
+// SocketPath returns the Unix socket a Unix server listens on: the one
+// REX_SOCKET names, or Rex's default for the user. Windows's server
+// listens on a named pipe instead; defaultEndpoint picks it.
 func SocketPath() string {
 	if p := os.Getenv("REX_SOCKET"); p != "" {
 		return p

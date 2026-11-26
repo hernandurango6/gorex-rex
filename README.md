@@ -91,7 +91,8 @@ go run .              # straight from the repository
 The app attaches to the first session the server has, or creates one
 labeled `gorex` with a shell window when there is none. `REX_SOCKET`
 names another server's socket; the default is
-`$XDG_RUNTIME_DIR/rex/server.sock`.
+`$XDG_RUNTIME_DIR/rex/server.sock` on Unix, and on Windows the server's
+named pipe `\\.\pipe\rex-<your SID>`.
 
 ### A remote server
 
@@ -112,7 +113,10 @@ option is needed once. A server address takes these forms:
   fails. This machine must be on the tailnet too.
 - **https://host** / **http://host:port** — the scheme decides TLS
   without probing.
-- **unix:///path** or a bare path — a Unix socket, as the local default.
+- **unix:///path** or a bare path — a Unix socket, as the local default
+  on Unix.
+- **npipe:////./pipe/name** or a bare **\\.\pipe\name** — a Windows
+  named pipe, the local default on Windows.
 
 On the server side, expose the API with either:
 

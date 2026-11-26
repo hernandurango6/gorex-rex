@@ -116,6 +116,10 @@ func (s *Stream) connect() error {
 	if err != nil {
 		return err
 	}
+	// The opening snapshot is one message of the terminal's whole
+	// scrollback; the read limit the control connection sets applies here
+	// too, since the default's 32 KiB ends big snapshots mid-decode.
+	ws.SetReadLimit(16 << 20)
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -405,15 +409,58 @@ func (s *Stream) closeWrites() {
 	close(s.writes)
 }
 
-// writer sends each chunk of input in order, as terminal.write calls.
+// writer sends each chunk of input in order, as terminal.write calls. A
+// pipe endpoint's server is a Windows one, whose ConPTY shells read
+// input records: the filter takes the emulator's answers to the
+// program's queries out of their input, which would type them as
+// keystrokes.
 func (s *Stream) writer() {
-	for b := range s.writes {
+	var filter *inputFilter
+	if s.c.Ep.Pipe != "" {
+		filter = &inputFilter{}
+	}
+	send := func(b []byte) {
+		if len(b) == 0 {
+			return
+		}
 		s.lastWrite.Store(time.Now().UnixNano())
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := s.c.Write(ctx, s.sid, s.block, b); err != nil {
 			log.Printf("rex: write %s: %v", s.block, err)
 		}
 		cancel()
+	}
+	for {
+		// A chunk ending in a partial sequence waits briefly for the
+		// rest; a lone escape, as vim's, flushes after the pause PSReadLine
+		// itself allows for one.
+		var timeout <-chan time.Time
+		var timer *time.Timer
+		if filter != nil && filter.holding() {
+			timer = time.NewTimer(60 * time.Millisecond)
+			timeout = timer.C
+		}
+		var b []byte
+		var ok bool
+		select {
+		case b, ok = <-s.writes:
+			if timer != nil {
+				timer.Stop()
+			}
+			if !ok {
+				if filter != nil {
+					send(filter.flush())
+				}
+				return
+			}
+		case <-timeout:
+			send(filter.flush())
+			continue
+		}
+		if filter != nil {
+			b = filter.feed(b)
+		}
+		send(b)
 	}
 }
 

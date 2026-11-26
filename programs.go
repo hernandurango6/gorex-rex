@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"path"
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -106,6 +107,11 @@ func init() {
 // programOf returns how a program shows, by the name of its process.
 func programOf(name string) program {
 	name = strings.TrimPrefix(path.Base(name), "-")
+	// Windows's processes report their name as PING.EXE or pwsh.exe; the
+	// catalogs name programs as Unix does.
+	if runtime.GOOS == "windows" {
+		name = strings.TrimSuffix(strings.ToLower(name), ".exe")
+	}
 	if p, ok := programs[strings.ToLower(name)]; ok {
 		return p
 	}

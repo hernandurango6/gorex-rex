@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,9 @@ func TestSpec(t *testing.T) {
 			{TLS: true, Host: "[fd7a::1]:7297"},
 			{Host: "[fd7a::1]:7297"},
 		}, true},
+		{`npipe:////./pipe/rex-S-1-5-18`, []Endpoint{{Pipe: `\\.\pipe\rex-S-1-5-18`}}, false},
+		{`\\.\pipe\rex-S-1-5-18`, []Endpoint{{Pipe: `\\.\pipe\rex-S-1-5-18`}}, false},
+		{`\\.\PIPE\rex-test`, []Endpoint{{Pipe: `\\.\pipe\rex-test`}}, false},
 	}
 	for _, c := range cases {
 		eps, probe, err := spec(c.in)
@@ -56,21 +60,30 @@ func TestSpec(t *testing.T) {
 			t.Errorf("spec(%q): got %v, want %v", c.in, eps, c.want)
 		}
 	}
-	for _, bad := range []string{"gopher://x", "ssh://host", ":9000", "foo://"} {
+	for _, bad := range []string{"gopher://x", "ssh://host", ":9000", "foo://", `npipe:////./pipe/`, `\\.\pipe\`, `npipe:////host/pipe/rex`} {
 		if _, _, err := spec(bad); err == nil {
 			t.Errorf("spec(%q) should fail", bad)
 		}
 	}
-	// "" means the machine's socket.
+	// "" means this machine's server: its socket on Unix, its pipe on
+	// Windows, each as defaultEndpoint picks it.
 	eps, _, err := spec("")
-	if err != nil || len(eps) != 1 || eps[0].Unix != SocketPath() {
-		t.Errorf("spec(\"\"): got %v, %v; want the socket %s", eps, err, SocketPath())
+	if err != nil || len(eps) != 1 || eps[0] != defaultEndpoint() {
+		t.Errorf("spec(\"\"): got %v, %v; want %v", eps, err, defaultEndpoint())
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.HasPrefix(eps[0].Pipe, `\\.\pipe\rex-`) {
+			t.Errorf("the Windows default is no rex pipe: %s", eps[0])
+		}
+	} else if eps[0].Unix != SocketPath() {
+		t.Errorf("the Unix default is not the socket: %s vs %s", eps[0], SocketPath())
 	}
 }
 
 // startTestServer runs a throwaway rex server with a plain TCP listener,
 // as `rex server run --extra-listen http://… --allow-anonymous` serves.
-func startTestServer(t *testing.T) (addr string, stop func()) {
+// pipe is the Windows server's named pipe, "" elsewhere.
+func startTestServer(t *testing.T) (addr, pipe string, stop func()) {
 	t.Helper()
 	if _, err := exec.LookPath("rex"); err != nil {
 		t.Skip("rex is not on PATH")
@@ -82,8 +95,15 @@ func startTestServer(t *testing.T) (addr string, stop func()) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
+	// Windows has no Unix socket path to listen on; its server takes a
+	// pipe instead.
+	listen := "unix://" + filepath.Join(dir, "sock")
+	if runtime.GOOS == "windows" {
+		pipe = fmt.Sprintf(`\\.\pipe\rex-test-%d`, os.Getpid())
+		listen = fmt.Sprintf("npipe:////./pipe/rex-test-%d", os.Getpid())
+	}
 	cmd := exec.Command("rex", "server", "run",
-		"--listen", "unix://"+filepath.Join(dir, "sock"),
+		"--listen", listen,
 		"--extra-listen", fmt.Sprintf("http://127.0.0.1:%d", port),
 		"--allow-anonymous",
 		"--state-dir", filepath.Join(dir, "state"),
@@ -96,23 +116,25 @@ func startTestServer(t *testing.T) (addr string, stop func()) {
 		cmd.Process.Kill()
 		cmd.Wait()
 	}
-	// The socket's appearance says the server is ready to serve.
+	// The TCP listener answering says the server is ready to serve.
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(filepath.Join(dir, "sock")); err == nil {
-			return fmt.Sprintf("127.0.0.1:%d", port), stop
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return fmt.Sprintf("127.0.0.1:%d", port), pipe, stop
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	stop()
 	t.Fatal("the test server did not come up")
-	return "", nil
+	return "", "", nil
 }
 
 // TestConnectTCP connects to a TCP listener through the host:port probe:
 // the HTTPS try fails fast, plain TCP answers.
 func TestConnectTCP(t *testing.T) {
-	addr, stop := startTestServer(t)
+	addr, _, stop := startTestServer(t)
 	defer stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -147,7 +169,7 @@ func TestConnectTCP(t *testing.T) {
 // TestConnectExplicitScheme checks the scheme decides TLS without
 // probing: http:// reaches the plain listener in one try.
 func TestConnectExplicitScheme(t *testing.T) {
-	addr, stop := startTestServer(t)
+	addr, _, stop := startTestServer(t)
 	defer stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -161,6 +183,40 @@ func TestConnectExplicitScheme(t *testing.T) {
 	}
 	if got := c.Ep.String(); got != "http://"+addr {
 		t.Errorf("endpoint: got %q, want %q", got, "http://"+addr)
+	}
+}
+
+// TestConnectPipe reaches the test server over its named pipe, the
+// transport Windows's server uses, spelled the two ways spec takes it.
+func TestConnectPipe(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("named pipes are Windows's transport")
+	}
+	_, pipe, stop := startTestServer(t)
+	defer stop()
+	for _, spec := range []string{pipe, "npipe://" + pipe} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		c, err := Connect(ctx, spec)
+		cancel()
+		if err != nil {
+			t.Fatalf("Connect(%s): %v", spec, err)
+		}
+		if c.Ep.Pipe != pipe {
+			t.Errorf("Connect(%s): endpoint %s is not the pipe %s", spec, c.Ep, pipe)
+		}
+		if c.Ep.Remote() {
+			t.Errorf("the pipe endpoint %s is not remote", c.Ep)
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		b, err := c.Bootstrap(ctx, []string{}...)
+		cancel()
+		if err != nil {
+			t.Fatalf("bootstrap over the pipe: %v", err)
+		}
+		if b.ServerStatus.PID == 0 {
+			t.Error("bootstrap reported no server status")
+		}
+		c.Close()
 	}
 }
 

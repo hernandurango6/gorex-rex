@@ -18,30 +18,43 @@ import (
 )
 
 // testShell is the shell of the tests: its prompt ends with prompt, and
-// typing run runs program for a while in dir.
+// typing cd then run, each on a line of its own — cmd and PowerShell
+// share no command separator — runs program for a while in dir.
 var testShell = func() (s struct{ path, prompt, run, program, dir string }) {
 	if runtime.GOOS == "windows" {
-		s.path, s.prompt, s.program, s.dir = "cmd.exe", ">", "PING", os.Getenv("SystemRoot")
-		s.run = `cd /d ` + s.dir + ` && ping -n 4 127.0.0.1 >nul`
+		s.path, s.prompt, s.run, s.program, s.dir = "cmd.exe", ">", "ping -n 4 127.0.0.1", "PING", os.Getenv("SystemRoot")
 		return
 	}
-	s.path, s.prompt, s.run, s.program, s.dir = "/bin/sh", "$", "cd /usr/bin && sleep 3", "sleep", "/usr/bin"
+	s.path, s.prompt, s.run, s.program, s.dir = "/bin/sh", "$", "sleep 3", "sleep", "/usr/bin"
 	return
 }()
 
-// liveServer skips the test unless a Rex server answers at SocketPath.
+// liveServer skips the test unless a Rex server answers: it stat()s the
+// Unix socket, while Windows's pipe answers only to a dial.
 func liveServer(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(rex.SocketPath()); err != nil {
-		t.Skipf("no Rex server at %s; start one with `rex server start`", rex.SocketPath())
+	if runtime.GOOS != "windows" {
+		if _, err := os.Stat(rex.SocketPath()); err != nil {
+			t.Skipf("no Rex server at %s; start one with `rex server start`", rex.SocketPath())
+		}
+		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	c, err := rex.Connect(ctx, "")
+	if err != nil {
+		t.Skipf("no Rex server answers: %v; start one with `rex server start`", err)
+	}
+	c.Close()
 }
 
 // newTestClient connects to the running server, with the library the
 // streams decode snapshots with.
 func newTestClient(t *testing.T) *rex.Client {
 	t.Helper()
-	client, err := rex.Connect(context.Background(), "")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	client, err := rex.Connect(ctx, "")
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -151,6 +164,7 @@ func TestPanesAndTabs(t *testing.T) {
 	a.focusReq = p
 	tab.setFocus(p)
 	tt.Frame()
+	p.term.Send([]byte("cd " + testShell.dir + "\r"))
 	p.term.Send([]byte(testShell.run + "\r"))
 	deadline := time.Now().Add(10 * time.Second)
 	for {

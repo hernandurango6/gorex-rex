@@ -40,8 +40,9 @@ type Client struct {
 }
 
 // Connect opens the control connection to the server spec names, as
-// REX_SERVER spells it or the caller passes: "" is this machine's Unix
-// socket. A bare host or host:port is probed the way rex's -S does —
+// REX_SERVER spells it or the caller passes: "" is this machine's
+// socket, or on Windows its named pipe. A bare host or host:port is
+// probed the way rex's -S does —
 // HTTPS, then HTTPS on Rex's tailnet port, then plain TCP on it — and
 // every connection to the same server must spell its tailnet name for
 // the TLS certificate to verify. The client doesn't start a server:

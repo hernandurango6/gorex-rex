@@ -21,6 +21,11 @@ func dialWS(ctx context.Context, ep Endpoint, path, subprotocol string) (*websoc
 		tr.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", ep.Unix)
 		}
+	} else if ep.Pipe != "" {
+		base = "ws://localhost"
+		tr.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dialPipe(ctx, ep.Pipe)
+		}
 	} else if ep.TLS {
 		base = "wss://" + ep.Host
 		tr.TLSClientConfig = &tls.Config{}

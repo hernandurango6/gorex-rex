@@ -10,8 +10,9 @@ require (
 )
 
 require (
+	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )
 
 tool github.com/egoist/mygo/cmd/mygo
