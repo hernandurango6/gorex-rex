@@ -37,6 +37,7 @@ func (a *App) view(c *ui.Context) {
 	}
 	a.shortcuts(c)
 	a.palette(c, k)
+	a.hostDialog(c, k)
 	// The window's title, which the Window menu and Mission Control show,
 	// is the active tab's.
 	if t := a.tab(); t != nil && win != nil {

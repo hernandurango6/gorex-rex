@@ -76,6 +76,8 @@ func spec(s string) (endpoints []Endpoint, probe bool, err error) {
 			return []Endpoint{{TLS: false, Host: hostPort(u)}}, false, nil
 		case "https", "wss":
 			return []Endpoint{{TLS: true, Host: hostPort(u)}}, false, nil
+		case "ssh":
+			return nil, false, fmt.Errorf("ssh endpoints are not supported yet; use the host's tailnet name or a TCP listener")
 		default:
 			return nil, false, fmt.Errorf("server endpoint scheme %q is not one of unix, http, https", u.Scheme)
 		}
@@ -184,4 +186,11 @@ func (e Endpoint) Name() string {
 // doesn't: the caller's flag or the local socket then decides.
 func SpecEnv() string {
 	return os.Getenv("REX_SERVER")
+}
+
+// ValidateEndpoint reports whether s parses as a server endpoint, and
+// the mistake when it doesn't.
+func ValidateEndpoint(s string) error {
+	_, _, err := spec(s)
+	return err
 }

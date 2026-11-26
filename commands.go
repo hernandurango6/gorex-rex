@@ -372,6 +372,30 @@ func (a *App) paletteItems() []paletteItem {
 	var items []paletteItem
 	q := strings.ToLower(strings.TrimSpace(a.paletteQuery))
 	match := func(s string) bool { return q == "" || fuzzy(strings.ToLower(s), q) }
+	// The saved hosts, as Rex's palette lists what connects elsewhere:
+	// this machine first, then the switcher's order.
+	if a.hostID != "" && match("connect to this computer local server host") {
+		items = append(items, paletteItem{
+			title: "Connect to This Computer", detail: "the local Rex server", glyph: "laptop",
+			run: func() { a.switchToServer("") },
+		})
+	}
+	for _, h := range hosts.Hosts {
+		if h.ID == a.hostID || !match("connect server host remote "+h.Label+" "+h.Endpoints[0]) {
+			continue
+		}
+		h := h
+		items = append(items, paletteItem{
+			title: "Connect to " + h.Label, detail: h.Endpoints[0], glyph: "server",
+			run: func() { a.switchToServer(h.ID) },
+		})
+	}
+	if match("add server host remote connect") {
+		items = append(items, paletteItem{
+			title: "Add Server…", detail: "connect to a Rex server elsewhere", glyph: "plus",
+			run: func() { a.openHostDialog(nil) },
+		})
+	}
 	for ti, t := range a.tabs {
 		for _, p := range t.panes() {
 			name, detail := p.label()

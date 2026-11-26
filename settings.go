@@ -61,16 +61,6 @@ func (a *App) setAppearance(v string) {
 	saveSettings()
 }
 
-// rememberServer keeps the server the app connected to for the next
-// window or run, so --server is needed once.
-func (a *App) rememberServer() {
-	if a.server == prefs.Server {
-		return
-	}
-	prefs.Server = a.server
-	saveSettings()
-}
-
 // setFontSize changes the size of the terminals' text, in every pane.
 func (a *App) setFontSize(size float32) {
 	size = min(max(size, 8), 32)

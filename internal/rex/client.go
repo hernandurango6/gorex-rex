@@ -48,22 +48,36 @@ type Client struct {
 // the TLS certificate to verify. The client doesn't start a server:
 // Rex's own does that, and `rex server start` brings it up.
 func Connect(ctx context.Context, serverSpec string) (*Client, error) {
-	eps, _, err := spec(serverSpec)
-	if err != nil {
-		return nil, err
+	return ConnectAny(ctx, []string{serverSpec})
+}
+
+// ConnectAny opens the control connection trying each endpoint spec in
+// turn, as a host's endpoints list them, and returns the client of the
+// first that answers. Each spec parses as Connect's does; a probe's
+// candidates count as the spec's one try. Empty means this machine's
+// socket.
+func ConnectAny(ctx context.Context, specs []string) (*Client, error) {
+	if len(specs) == 0 {
+		specs = []string{""}
 	}
 	var last error
-	for _, ep := range eps {
-		pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-		c, err := connect(pctx, ep, "")
-		cancel()
-		if err == nil {
-			return c, nil
+	for _, s := range specs {
+		eps, _, err := spec(s)
+		if err != nil {
+			last = err
+			continue
 		}
-		last = err
-		// A parse-free spec has one endpoint; probes keep going.
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		for _, ep := range eps {
+			pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			c, err := connect(pctx, ep, "")
+			cancel()
+			if err == nil {
+				return c, nil
+			}
+			last = err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 		}
 	}
 	return nil, last

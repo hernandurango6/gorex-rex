@@ -82,9 +82,13 @@ type App struct {
 	win    atomic.Pointer[mygo.Window]
 	client *rex.Client
 	server string // the spec the connection opened, "" for the local socket
-	status rex.ServerStatus
-	sid    string // the session the window shows
-	err    string
+	// hostID is the saved host the window shows, "" for this machine's
+	// server; connecting is the host being connected to, "local" for the
+	// machine's, "" when nothing is.
+	hostID, connecting string
+	status             rex.ServerStatus
+	sid                string // the session the window shows
+	err                string
 
 	tabs   []*Tab
 	active int
@@ -105,6 +109,14 @@ type App struct {
 	quitting     bool
 	focusedWin   bool
 	title        string
+
+	// The Add Host dialog: its fields, the host it edits when it's one,
+	// and the mistake it last found.
+	addHostOpen     bool
+	addHostLabel    string
+	addHostEndpoint string
+	addHostErr      string
+	editingHost     *Host
 
 	// The session's view, by its revision: viewSeq is the applied one's,
 	// viewMax the highest an event named. Block events that arrive while
@@ -792,7 +804,11 @@ func (a *App) applyView(v *rex.SessionView) {
 		a.active = max(len(tabs)-1, 0)
 	}
 	if len(tabs) == 0 {
-		if !a.quitting {
+		// The session lost its last window. While a server switch is
+		// going on this is the old server's empty state, and the window
+		// stays; otherwise the window goes, as a session with nothing in
+		// it has nothing to show.
+		if !a.quitting && a.connecting == "" && a.client != nil {
 			if win := a.win.Load(); win != nil {
 				win.Close()
 			}

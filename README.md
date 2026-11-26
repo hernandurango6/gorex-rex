@@ -39,8 +39,19 @@ scripted and shared by every other Rex client, and they outlive the app.
   front, as Rex does. Tabs reorder by dragging (`session.move_window`),
   rename by double-click (`session.set_window_label`), and have a context
   menu.
-- **Host chip** with the machine's name and OS; its popover shows the
-  server's PID, uptime and API revision.
+- **Hosts, as Rex.app has them.** The host chip's popover is the server
+  switcher: this machine first, then the servers you save — each with the
+  endpoint that reaches it, a dot for its state (green where the window
+  is, amber while joining, red when the last try failed), and edit and
+  remove under the pointer. **Add Server…** opens a dialog that takes an
+  address as rex's `-S` does — a tailnet name, host:port, an HTTP/HTTPS
+  URL — validates it live and moves the window to the server once it
+  answers. Hosts are kept in `hosts.json` beside the settings; the
+  palette lists them too (`Connect to studio`), and a failed switch
+  leaves the window where it was, since sessions never move: they keep
+  running in their own server.
+- The popover's details show the server's endpoint, PID, uptime and API
+  revision.
 - **Command palette** (⇧⌘P, Ctrl+Shift+P, or the ⌘ button): every command,
   and every pane to jump to, fuzzy-matched.
 - **Reconnects.** If the control connection drops, the app resumes the
